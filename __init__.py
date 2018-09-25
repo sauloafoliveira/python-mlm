@@ -3,13 +3,24 @@ from scipy.optimize import root
 import numpy as np
 from scipy.spatial.distance import cdist
 from sklearn.preprocessing import LabelBinarizer
-from rpselectors import RandomSelector
+from mlm.selectors import RandomSelection
+
+
+__all__ = ['MinimalLearningMachine', 'MinimalLearningMachineClassifier',
+           'NearestNeighborMinimalLearningMachineClassifier',
+           'CubicMinimalLearningMachine']
+
+__author__  = "Saulo Oliveira <saulo.freitas.oliveira@gmail.com>"
+__status__  = "production"
+__version__ = "1.0.0"
+__date__    = "07 September 2018"
+
 
 
 class MinimalLearningMachine(BaseEstimator, RegressorMixin):
 
     def __init__(self, selector=None, estimator_type='regressor'):
-        self.selector = RandomSelector() if selector is None else selector
+        self.selector = RandomSelection() if selector is None else selector
         self.M = []
         self.t = []
 
@@ -20,7 +31,7 @@ class MinimalLearningMachine(BaseEstimator, RegressorMixin):
 
         idx, self.M, self.t = self.selector.select(X, y)
 
-        assert (len(self.M) != 0), "No reference point was yield by the selector"
+        assert (len(self.M) != 0), "No reference point was yielded by the selector"
 
         dx = cdist(X, self.M)
         dy = cdist(y, self.t)
@@ -29,9 +40,14 @@ class MinimalLearningMachine(BaseEstimator, RegressorMixin):
 
         return self
 
-    def mulat_(self, y, dyh):
+
+    def _one(self, y):
         if len(y.shape) == 1:
-            y = y[:, None]
+            return y[:, None]
+        return y
+
+    def mulat_(self, y, dyh):
+        y = self._one(y)
 
         return np.sum(np.power(np.power(cdist(y, self.t), 2) - np.power(dyh, 2), 2))
 
@@ -72,7 +88,6 @@ class MinimalLearningMachineClassifier(MinimalLearningMachine, ClassifierMixin):
     def score(self, X, y, sample_weight=None):
         return ClassifierMixin.score(self, X, y, sample_weight)
 
-
 class NearestNeighborMinimalLearningMachineClassifier(MinimalLearningMachineClassifier):
 
     def __init__(self, selector=None):
@@ -81,7 +96,6 @@ class NearestNeighborMinimalLearningMachineClassifier(MinimalLearningMachineClas
     def active_(self, dyhat):
         m = np.argmin(dyhat, 1)
         return self.t[m]
-
 
 class CubicMinimalLearningMachine(MinimalLearningMachine):
 
@@ -97,8 +111,8 @@ class CubicMinimalLearningMachine(MinimalLearningMachine):
         r = list(map(np.isreal, roots))
         if np.sum(r) == 3:
             # Rescue the root with the lowest cost associated
-            j = [lambda y: self.mulat_(y, dyhat) for y in roots]
-            return np.real(roots[np.argmax(r)])
+            j = [self.mulat_(y, dyhat) for y in np.real(roots)]
+            return np.real(roots[np.argmin(j)])
         else:
             # As True > False, then rescue the first real value
             return np.real(roots[np.argmax(r)])
