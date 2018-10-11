@@ -1,9 +1,9 @@
 import numpy as np
 
-__author__  = "Saulo Oliveira <saulo.freitas.oliveira@gmail.com>"
-__status__  = "production"
+__author__ = "Saulo Oliveira <saulo.freitas.oliveira@gmail.com>"
+__status__ = "production"
 __version__ = "1.0.0"
-__date__    = "07 September 2018"
+__date__ = "07 September 2018"
 
 
 class SelectionAlgorithm:
@@ -118,8 +118,8 @@ class FASTSelection(SelectionAlgorithm):
             score = self.k - np.sum(d[d > 0])
             return (score / self.k) > self.p, score
 
-    def _allsame(self, y):
-        from scipy.spatial.distance import cdist
+    @staticmethod
+    def _allsame(y):
         if len(y) == 0:
             return True
         return np.all(y == y[0])
@@ -170,7 +170,7 @@ class AcitveSelection(SelectionAlgorithm):
             Xr[i] = X[j]
             yr[i] = y[j]
 
-            crit = self.quad_renyi_entropy_(Xr, self.l)
+            crit = self.__quad_renyi_entropy(Xr, self.l)
 
             if old_crit <= crit:
                 # undo permutation
@@ -180,7 +180,8 @@ class AcitveSelection(SelectionAlgorithm):
         idx = np.where(np.isin(X, Xr))
         return idx, Xr, yr
 
-    def quad_renyi_entropy_(self, X, l):
+    @staticmethod
+    def __quad_renyi_entropy(X, l):
 
         from scipy.spatial.distance import cdist
 
@@ -252,5 +253,106 @@ class CriticalSelection(SelectionAlgorithm):
         l = np.sum(theta >= 0) / len(X)
 
         return l >= (1 - xy[1])
+
+
+class NLSelection(SelectionAlgorithm):
+
+    def __init__(self, cutoff=(.2, .32), k=None):
+        self.cutoff = cutoff
+        self.k = k
+
+    @staticmethod
+    def __moving_average(a, periods):
+        weights = np.ones(1, periods) / periods
+        return np.convolve(a, weights, mode='valid')
+
+    @staticmethod
+    def __order_of(X):
+        from scipy.spatial.distance import cdist
+
+        x_origin = np.min(X, axis=0)
+        keys = cdist(np.asmatrix(x_origin), X)
+
+        return np.argsort(keys).T
+
+
+    def select(self, X, y):
+        from scipy.signal import find_peaks
+
+        n = len(X)
+
+        # trick to sort rows
+        order = self.__class__.__order_of(X)
+
+        X, y = X[order], y[order]
+
+        yl = y.reshape(-1, ) # self.__moving_average(y, X.shape[-1] + 1)
+
+        s = round(np.sqrt(np.nanstd(yl)))
+
+        h_peaks, l = find_peaks(yl, distance=s)
+        l_peaks, l = find_peaks(-yl, distance=s)
+
+        idx = np.zeros((n, 1), dtype=bool)
+
+        idx[h_peaks] = True
+        idx[l_peaks] = True
+
+        idx = np.asmatrix(idx)
+
+        return idx, X[idx], y[idx]
+
+
+class KSSelection(SelectionAlgorithm):
+
+    def __init__(self, cutoff=(.2, .32), k=None):
+        self.cutoff = cutoff
+        self.k = k
+
+    @staticmethod
+    def __pval_ks_2smap(entry):
+        from scipy.stats import ks_2samp, zscore
+
+        a = zscore(entry[0]) if np.std(entry[0]) > 0 else entry[0]
+
+        b = zscore(entry[1]) if np.std(entry[1]) > 0 else entry[1]
+
+        info, pval = ks_2samp(a, b)
+
+        return pval
+
+
+    def select(self, X, y):
+        from sklearn.neighbors import NearestNeighbors
+
+        n = len(X)
+
+        if self.k is None:
+            self.k = round(5 * np.log10(n))
+
+        knn = NearestNeighbors(n_neighbors=int(self.k + 1), algorithm='ball_tree').fit(X)
+
+        distx, ind = knn.kneighbors(X)
+
+        knn = NearestNeighbors(n_neighbors=int(self.k + 1), algorithm='ball_tree').fit(y)
+
+        disty, ind = knn.kneighbors(y, return_distance=True)
+
+        zipped = list(zip(distx[:, :1], disty[:, :1]))
+
+        p = [self.__pval_ks_2smap(entry) for entry in zipped]
+
+        order = np.argsort(p)
+
+        h_cutoff = round(self.cutoff[0] * n)
+        l_cutoff = round(self.cutoff[1] * n)
+
+        idx = np.zeros((n, 1), dtype=bool)
+        idx[order[:l_cutoff]] = True
+        idx[order[-h_cutoff:]] = True
+
+        idx = idx.reshape(-1, )
+
+        return idx, X[idx], y[idx]
 
 

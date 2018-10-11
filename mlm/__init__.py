@@ -40,23 +40,15 @@ class MinimalLearningMachine(BaseEstimator, RegressorMixin):
 
         return self
 
-
-    def _one(self, y):
-        if len(y.shape) == 1:
-            return y[:, None]
-        return y
-
     def mulat_(self, y, dyh):
-        y = self._one(y)
-
-        return np.sum(np.power(np.power(cdist(y, self.t), 2) - np.power(dyh, 2), 2))
+        return np.sum(np.power(np.power(cdist(np.asmatrix(y), self.t), 2) - np.power(dyh, 2), 2))
 
     def active_(self, dyhat):
         y0h = np.mean(self.t)
 
         result = [root(method='lm', fun=lambda y: self.mulat_(y, dyh), x0=y0h) for dyh in dyhat]
         yhat = list(map(lambda y: y.x, result))
-        return np.array(yhat).reshape(-1, )
+        return np.asmatrix(yhat)
 
     def predict(self, X, y=None):
         try:
@@ -67,6 +59,8 @@ class MinimalLearningMachine(BaseEstimator, RegressorMixin):
         dyhat = cdist(X, self.M) @ self.B_
 
         return self.active_(dyhat)
+
+
 
 class MinimalLearningMachineClassifier(MinimalLearningMachine, ClassifierMixin):
 
@@ -81,7 +75,7 @@ class MinimalLearningMachineClassifier(MinimalLearningMachine, ClassifierMixin):
     def active_(self, dyhat):
         classes = self.lb.transform(self.lb.classes_)
 
-        result = [np.argmin(map(lambda y_class: self.mulat_(y_class, dyh), classes)) for dyh in dyhat]
+        result = [np.argmin(list(map(lambda y_class: self.mulat_(y_class, dyh), classes))) for dyh in dyhat]
 
         return self.lb.inverse_transform(self.lb.classes_[result])
 
