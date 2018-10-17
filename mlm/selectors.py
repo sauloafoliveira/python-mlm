@@ -19,19 +19,22 @@ class RandomSelection(SelectionAlgorithm):
         self.k = k
 
     def select(self, X, y):
+        n = len(X)
         if self.k is None:
-            self.k = round(np.log10(len(X)) * 5).astype('int')
+            self.k = round(np.log10(n) * 5).astype('int')
+        elif np.isinf(self.k):
+            self.k = len(X)
 
-        perm = np.random.permutation(len(X))
+        perm = np.random.permutation(n)
         perm = perm[:self.k]
 
-        if len(y.shape) == 1:
-            return perm, X[perm], y[perm]
+        idx = np.zeros(n, dtype=bool)
 
-        idx = np.zeros((len(X), 1), bool)
         idx[perm] = True
 
-        return perm, X[perm], y[perm]
+        idx = np.array(idx.ravel())
+
+        return idx, X[idx], y[idx]
 
 
 class CondensedSelection(SelectionAlgorithm):
@@ -273,7 +276,7 @@ class NLSelection(SelectionAlgorithm):
         x_origin = np.min(X, axis=0)
         keys = cdist(np.asmatrix(x_origin), X)
 
-        return np.argsort(keys).T
+        return np.argsort(keys)
 
 
     def select(self, X, y):
@@ -284,21 +287,17 @@ class NLSelection(SelectionAlgorithm):
         # trick to sort rows
         order = self.__class__.__order_of(X)
 
-        X, y = X[order], y[order]
+        yl = y[order].ravel()
 
-        yl = y.reshape(-1, ) # self.__moving_average(y, X.shape[-1] + 1)
-
-        s = round(np.sqrt(np.nanstd(yl)))
+        s = np.round(np.sqrt(np.std(yl)))
 
         h_peaks, l = find_peaks(yl, distance=s)
         l_peaks, l = find_peaks(-yl, distance=s)
 
-        idx = np.zeros((n, 1), dtype=bool)
+        idx = np.zeros(n, dtype=bool)
 
         idx[h_peaks] = True
         idx[l_peaks] = True
-
-        idx = np.asmatrix(idx)
 
         return idx, X[idx], y[idx]
 
@@ -317,7 +316,7 @@ class KSSelection(SelectionAlgorithm):
 
         b = zscore(entry[1]) if np.std(entry[1]) > 0 else entry[1]
 
-        info, pval = ks_2samp(a, b)
+        _, pval = ks_2samp(a, b)
 
         return pval
 
@@ -351,8 +350,27 @@ class KSSelection(SelectionAlgorithm):
         idx[order[:l_cutoff]] = True
         idx[order[-h_cutoff:]] = True
 
-        idx = idx.reshape(-1, )
+        idx = idx.ravel()
 
         return idx, X[idx], y[idx]
+
+
+class RegENN(SelectionAlgorithm):
+
+    def __init__(self, model=None):
+        super(RegENN, self).__init__()
+        self.model = model
+
+    def select(self, X, y):
+        from sklearn.neighbors import KNeighborsRegressor
+
+        if self.model is None:
+            self.model = KNeighborsRegressor()
+
+        a = np.arange(len(X))
+        for i in a:
+            mask = a != i
+            yhat = self.model.fit(X[mask], y[mask]).predict(X[i])
+
 
 

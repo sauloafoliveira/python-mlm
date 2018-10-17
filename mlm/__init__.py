@@ -3,10 +3,12 @@ from scipy.optimize import root
 import numpy as np
 from scipy.spatial.distance import cdist
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.utils.validation import check_X_y
 from mlm.selectors import RandomSelection
 
 
-__all__ = ['MinimalLearningMachine', 'MinimalLearningMachineClassifier',
+__all__ = ['MinimalLearningMachine',
+           'MinimalLearningMachineClassifier',
            'NearestNeighborMinimalLearningMachineClassifier',
            'CubicMinimalLearningMachine']
 
@@ -19,36 +21,66 @@ __date__    = "07 September 2018"
 
 class MinimalLearningMachine(BaseEstimator, RegressorMixin):
 
-    def __init__(self, selector=None, estimator_type='regressor'):
-        self.selector = RandomSelection() if selector is None else selector
+    def __init__(self, selector=None, estimator_type='regressor', bias=False, l=0):
+        self.selector = RandomSelection(k=np.inf) if selector is None else selector
         self.M = []
         self.t = []
+        self._sparsity_scores = (0, np.inf) # sparsity and norm frobenius
+        self._estimator_type = estimator_type
+        self.bias = bias
+        self.l = l
+
+    def __validade_params(self):
+        if not(hasattr(self, 'bias')):
+            self.bias
+
 
     def fit(self, X, y):
+        from numpy.linalg import norm
 
-        if len(y.shape) == 1:
-            y = y[:, None]
+        X, y = check_X_y(X, y, multi_output=True, y_numeric=True)
 
-        idx, self.M, self.t = self.selector.select(X, y)
+        if y.ndim == 1:
+            y = np.array([y.ravel()]).T
+
+        idx, _, _ = self.selector.select(X, y)
+
+        self.M = X[idx]
+        self.t = y[idx]
 
         assert (len(self.M) != 0), "No reference point was yielded by the selector"
 
-        dx = cdist(X, self.M)
-        dy = cdist(y, self.t)
+        dx = cdist(np.asmatrix(X), np.asmatrix(self.M))
+        dy = cdist(np.asmatrix(y), np.asmatrix(self.t))
+
+        # if self.bias:
+        #     dx = np.concatenate(np.ones(len(X)), dx, axis=1)
+        #
+        # if self.l > 0 :
+        #     dx2 = dx.T @ dx
+        #     np.fill_diagonal(dx2, self.l + np.diagonal(dx2))
+        #     self.B_ = np.linalg.pinv(dx2 @ dx.T) @ dy
+        # else:
 
         self.B_ = np.linalg.pinv(dx) @ dy
+
+        self._sparsity_scores = (1 - len(self.M) / len(X), norm(self.B_, ord='fro'))
 
         return self
 
     def mulat_(self, y, dyh):
-        return np.sum(np.power(np.power(cdist(np.asmatrix(y), self.t), 2) - np.power(dyh, 2), 2))
+        if y.ndim == 1:
+            y = np.array([y.ravel()]).T
+
+        dy2t = cdist(np.asmatrix(y), np.asmatrix(self.t))
+        return np.sum(np.power(np.power(dy2t, 2) - np.power(dyh, 2), 2))
 
     def active_(self, dyhat):
         y0h = np.mean(self.t)
 
         result = [root(method='lm', fun=lambda y: self.mulat_(y, dyh), x0=y0h) for dyh in dyhat]
         yhat = list(map(lambda y: y.x, result))
-        return np.asmatrix(yhat)
+        return np.asarray(yhat)
 
     def predict(self, X, y=None):
         try:
@@ -56,16 +88,27 @@ class MinimalLearningMachine(BaseEstimator, RegressorMixin):
         except AttributeError:
             raise RuntimeError("You must train classifier before predicting data!")
 
+        X = np.asmatrix(X)
+
         dyhat = cdist(X, self.M) @ self.B_
 
         return self.active_(dyhat)
 
+    def sparsity(self):
+        try:
+            getattr(self, "B_")
+        except AttributeError:
+            raise RuntimeError("You must train classifier before predicting data!")
+
+        s = np.round(self._sparsity_scores, 2)
+
+        return s[0], s[1]
 
 
 class MinimalLearningMachineClassifier(MinimalLearningMachine, ClassifierMixin):
 
     def __init__(self, selector=None):
-        MinimalLearningMachine.__init__(self, selector)
+        MinimalLearningMachine.__init__(self, selector, estimator_type='classifier')
         self.lb = LabelBinarizer()
 
     def fit(self, X, y=None):

@@ -15,21 +15,21 @@ scaler = StandardScaler().fit(X)
 X = scaler.transform(X)
 
 
-mlm1 = NNMLMC()
+mlm1 = MLMC()
 mlm1.fit(X, y)
 mlm_r1 = (mlm1.score(X, y))
 
 
-mlm2 = NNMLMC(selector=KSSelection())
+mlm2 = MLMC(selector=KSSelection())
 mlm2.fit(X, y)
 mlm_r2 = mlm2.score(X, y)
 
 
-mlm3 = NNMLMC(selector=NLSelection())
+mlm3 = MLMC(selector=NLSelection())
 mlm3.fit(X, y)
 mlm_r3 = mlm3.score(X, y)
 
-print(f'RN: R2 of {round(mlm_r1, 2)} with sparsity of {round(1-len(mlm1.M)/len(X), 2)}')
-print(f'KS: R2 of {round(mlm_r2, 2)} with sparsity of {round(1-len(mlm2.M)/len(X), 2)}')
-print(f'NL: R2 of {round(mlm_r3, 2)} with sparsity of {round(1-len(mlm3.M)/len(X), 2)}')
+print(f'RN: R2 of {round(mlm_r1, 2)} with sparsity of {mlm1.sparsity()}')
+print(f'KS: R2 of {round(mlm_r2, 2)} with sparsity of {mlm1.sparsity()}')
+print(f'NL: R2 of {round(mlm_r3, 2)} with sparsity of {mlm1.sparsity()}')
 
