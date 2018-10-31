@@ -21,12 +21,17 @@ class RandomSelection(SelectionAlgorithm):
     def select(self, X, y):
         n = len(X)
         if self.k is None:
-            self.k = round(np.log10(n) * 5).astype('int')
+            k = round(np.log10(n) * 5).astype('int')
         elif np.isinf(self.k):
-            self.k = len(X)
+            k = len(X)
+        elif np.isscalar(self.k):
+            if self.k <= 1:
+                k = np.round(self.k * len(X)).astype('int')
+            else:
+                k = np.round(max(min(self.k, len(X)), 2)).astype('int')
 
         perm = np.random.permutation(n)
-        perm = perm[:self.k]
+        perm = perm[:k]
 
         idx = np.zeros(n, dtype=bool)
 
@@ -355,22 +360,92 @@ class KSSelection(SelectionAlgorithm):
         return idx, X[idx], y[idx]
 
 
-class RegENN(SelectionAlgorithm):
+class DROP2_RE(SelectionAlgorithm):
 
-    def __init__(self, model=None):
-        super(RegENN, self).__init__()
-        self.model = model
+    def __init__(self, k=None, a=0.1):
+        from sklearn.neighbors import KNeighborsRegressor
+        super(DROP2_RE, self).__init__()
+        self.k = k
+        self.alpha = a
+        self.model = KNeighborsRegressor()
+
+    def __err(self, Xy, associates, i):
+        X, y = Xy
+
+        self.model.fit(X[associates], y[associates])
+
+        error_with = np.abs(self.model.predict(np.asmatrix(X[i])) - y[i])
+
+        associates_without_x = list(set(associates) - set([i]))
+
+        self.model.fit(X[associates_without_x], y[associates_without_x])
+
+        error_without = np.abs(self.model.predict(np.asmatrix(X[i])) - y[i])
+
+        return np.asarray([error_with, error_without])
+
+    def __theta(self, y, A):
+
+        associates = A[:self.k] if len(A) >= self.k else A
+
+        return self.alpha * np.std( y[ associates ] )
+
 
     def select(self, X, y):
-        from sklearn.neighbors import KNeighborsRegressor
+        from sklearn.neighbors import NearestNeighbors
+        _, associates = NearestNeighbors(n_neighbors=len(X)).fit(X).kneighbors(X)
 
-        if self.model is None:
-            self.model = KNeighborsRegressor()
+        Xy = (X, y)
 
-        a = np.arange(len(X))
-        for i in a:
-            mask = a != i
-            yhat = self.model.fit(X[mask], y[mask]).predict(X[i])
+        selected = np.ones(len(X), dtype=bool)
 
+        for i in range(len(X)):
+            A = associates[i]
+
+            errors = np.zeros(2)
+
+            for a in A:
+                err = np.array(self.__err(Xy, A, a)).ravel()
+                t = self.__theta(y, associates[a])
+                errors += np.asarray(err < t)
+
+            # error with <= error without
+            if errors[0] <= errors[1]:
+                selected[i] = False
+
+                for a in A:
+                    associates[a] = np.delete(associates[a], np.where(associates[a] == i))
+
+        return selected, X[selected], y[selected]
+
+
+class MutualInformationSelection(SelectionAlgorithm):
+
+    def __init__(self, k=6, alpha=0.05):
+        self.k = k
+        self.alpha = alpha
+
+    def select(self, X, y):
+        from sklearn.feature_selection import mutual_info_regression
+        from sklearn.preprocessing import MinMaxScaler
+        from sklearn.neighbors import NearestNeighbors
+
+        n = len(X)
+        mask = np.arange(n)
+
+        mi = [mutual_info_regression(X[mask != i], y[mask != i]) for i in range(n)]
+
+        mi = MinMaxScaler().fit_transform(mi)
+
+        _, neighbors = NearestNeighbors(n_neighbors=self.k + 1).fit(X).kneighbors(X)
+
+        # dropout themselves
+        neighbors = neighbors[:, 1:]
+
+        cdiff = [np.sum((mi[i] - mi[neighbors[i]]) > self.alpha) for i in range(n)]
+
+        idx = np.array(cdiff) < self.k
+
+        return idx, X[idx], y[idx]
 
 

@@ -1,8 +1,9 @@
 import numpy as np
+from builtins import len
 
 from sklearn.preprocessing import StandardScaler
 from mlm import MinimalLearningMachine as MLM
-from mlm.selectors import KSSelection, NLSelection
+from mlm.selectors import KSSelection, NLSelection, RandomSelection, MutualInformationSelection
 from sklearn.utils.validation import check_X_y
 
 import matplotlib.pyplot as plt
@@ -10,10 +11,10 @@ import matplotlib.pyplot as plt
 
 mydata = np.genfromtxt('/Users/sauloafoliveira/Dropbox/thesis_code/mcycle.csv', delimiter=",")
 
-X = mydata[:, 0].reshape(-1, 1)
-y = mydata[:, 1].reshape(-1, 1)
+X = mydata[:, :-1].reshape(-1, 1)
+y = mydata[:, -1].reshape(-1, 1)
 
-X, y = check_X_y(X, y)
+X, y = check_X_y(X, y, multi_output=True)
 
 
 scaler = StandardScaler().fit(X)
@@ -43,19 +44,27 @@ svrr = SVR(C=128).fit(X, y)
 ytrue = svrr.predict(X)
 
 
-knnr1 = KNeighborsRegressor().fit(X, y)
-knnr2 = KNeighborsRegressor().fit(mlm2.M, mlm2.t)
+knnr1 = MLM(selector=RandomSelection(k=1-mlm2.sparsity()[0]))
+knnr1.fit(X, y)
+#knnr2 = KNeighborsRegressor().fit(mlm2.M, mlm2.t)#
+knnr2 = MLM(selector=MutualInformationSelection()).fit(X, y)
 
 ax = ax.ravel()
 
 cl = [mlm1, mlm2,  knnr1, knnr2 ]
+
+newX = np.asmatrix(np.linspace(np.min(X), np.max(X))).T
+
 for i in range(len(ax)):
 
     ax[i].plot(X, y, '.r', alpha=0.5)
     ax[i].plot(X, ytrue, '-k', alpha=0.8)
-    ax[i].plot(X, cl[i].predict(X), '-b')
+    ax[i].plot(newX, cl[i].predict(newX), '-b')
     #ax[i].plot(mlm1.M, mlm1.t, '.k')
-    ax[i].set_title('Model: {}'.format(round(cl[i].score(X, y), 2)))
+    if i != -1:
+        ax[i].set_title('Model: {} {}'.format(round(cl[i].score(X, y), 2), cl[i].sparsity()))
+    else:
+        ax[i].set_title('Model: {} '.format(round(cl[i].score(X, y), 2)))
 #
 # ax2.plot(X, y, '.r', alpha=0.5)
 # ax2.plot(X, mlm2.predict(X), '-b')
