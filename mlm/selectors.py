@@ -442,10 +442,22 @@ class MutualInformationSelection(SelectionAlgorithm):
         # dropout themselves
         neighbors = neighbors[:, 1:]
 
-        cdiff = [np.sum((mi[i] - mi[neighbors[i]]) > self.alpha) for i in range(n)]
+        mask_as_set = set(mask)
 
-        idx = np.array(cdiff) < self.k
+        not_neighbors = [list(mask_as_set - set(neighbors[i])) for i in range(n)]
 
-        return idx, X[idx], y[idx]
+        # mutual information without neighbors
+        nn_mi = [mutual_info_regression(X[not_neighbors[i]], y[not_neighbors[i]]) for i in range(n)]
+
+        selected = np.zeros(len(X), dtype=bool)
+
+        for i in range(n):
+
+            cdiff = np.asarray([(mi[i] - mi[k]) for k in neighbors[i]])
+
+            selected[i] = np.sum(cdiff > self.alpha) < self.k
+
+
+        return selected, X[selected], y[selected]
 
 
